@@ -1,76 +1,20 @@
-from string import Template
-from IPython.display import display
-
-import urllib.request
-import urllib.error
 import json
-import csv
+from string import Template
 
 import ipyleaflet as leaflet
 import ipywidgets as widgets
-
-
-class USZIPCodeRepository:
-    CACHE = {}
-
-    def __init__(self, data_url_prefix='https://raw.githubusercontent.com/yyu/GeoJSON-US/master'):
-        self.data_url_prefix = data_url_prefix
-        self.geojson_url_prefix = f'{data_url_prefix}/perZIPgeojson'
-
-        self.gazetteer = self.get_zipcode_latlons(f'{data_url_prefix}/ZIPCodesGazetteer.tsv')
-        self.zipcode_list = self.get_available_zipcodes(f'{data_url_prefix}/perZIPgeojson/all_zipcodes.txt')
-        self.zipcode_set = set(self.zipcode_list)
-
-    @staticmethod
-    def get_zipcode_latlons(url):
-        lines = [line.decode('UTF8').strip() for line in urllib.request.urlopen(url).readlines()]
-        tsv = csv.DictReader(lines, delimiter='\t')
-        return dict((d['GEOID'], {'lat': float(d['INTPTLAT']), 'lon': float(d['INTPTLONG'])}) for d in tsv)
-
-    @staticmethod
-    def get_available_zipcodes(url):
-        lines = [zipcode.decode('UTF8').strip() for zipcode in urllib.request.urlopen(url).readlines()]
-        return lines[1:]  # ignore the first line
-
-    def make_url(self, zipcode):
-        return f'{self.data_url_prefix}/perZIPgeojson/{zipcode[0]}/{zipcode[1]}/{zipcode[2]}/{zipcode}.json'
-
-    def fetch_zipcode(self, zipcode):
-        """returns a (dict, err) tuple where err could be a string for error message or None"""
-
-        url = self.make_url(zipcode)
-
-        if url in USZIPCodeRepository.CACHE:
-            return USZIPCodeRepository.CACHE[url], None
-
-        try:
-            s = urllib.request.urlopen(url).read()
-        except urllib.error.URLError as e:
-            return None, 'failed to get ' + url + ':' + e.reason
-
-        j = json.loads(s)
-
-        USZIPCodeRepository.CACHE[url] = j
-
-        return j, None
-
-    def fetch_zipcodes(self, *zipcodes):
-        d = {"type": "FeatureCollection", "features": []}
-
-        available_zipcodes = set(zipcodes) & self.zipcode_set
-
-        for z in available_zipcodes:
-            j, err = self.fetch_zipcode(z)
-
-            if j is not None:
-                d['features'].append(j)
-
-        return d
+from IPython.display import display
+from cloudict import WebDict, WebTSV
 
 
 class USMap:
-    def __init__(self):
-        self.us = USZIPCodeRepository()
+    def __init__(self, data_url_prefix='https://raw.githubusercontent.com/yyu/GeoJSON-US/master'):
+        self.zipcodes = WebDict(
+            url_maker=lambda z: f'{data_url_prefix}/perZIPgeojson/{z[0]}/{z[1]}/{z[2]}/{z}.json',
+            response_processor=json.loads
+        )
+        self.gazetteer = WebTSV(f'{data_url_prefix}/ZIPCodesGazetteer.tsv')
+        self.zipcode_set = set(self.gazetteer.keys())
 
         self.center = [47.621795, -122.334958]
         self.zoom = 8
@@ -105,10 +49,7 @@ class USMap:
             self.label.value = str(kwargs.get('coordinates'))
 
     def fetch_zipcode(self, zipcode):
-        d, err = self.us.fetch_zipcode(zipcode)
-        if err is not None:
-            print(err)
-        return d
+        return self.zipcodes[zipcode]
 
     def add_point(self, lat, lng, name='', popup=None):
         feature = {"type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [lng, lat]}}
@@ -145,23 +86,36 @@ class USMap:
 
         self.add_geojson(d, name=zipcode, popup=popup)
 
-    def add_zipcodes(self, zipcodes):
+    def progressive_iter(self, iterable, n=None, label_on_finish=''):
         display(self.info_box)
 
-        zipcodes = set(zipcodes)
-        available_zipcodes = list(zipcodes & self.us.zipcode_set)
-        available_zipcodes.sort()
+        if n is None:
+            n = len(iterable)
 
         self.progress_bar.value = self.progress_bar.min
-        self.progress_bar.max = len(available_zipcodes)
+        self.progress_bar.max = n
 
-        for z in available_zipcodes:
-            self.progress_label.value = z
-            self.add_zipcode(z)
+        for v in iterable:
+            yield v
+            self.progress_label.value = v
             self.progress_bar.value += 1
-        self.progress_label.value = '%d/%d loaded' % (len(available_zipcodes), len(zipcodes))
 
-        return available_zipcodes
+        self.progress_label.value = label_on_finish
+
+    def add_zipcodes_no_check(self, zipcodes, show_progress=False):
+        zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
+
+        for z in zipcode_gen:
+            self.add_zipcode(z)
+
+        return zipcodes
+
+    def add_zipcodes(self, zipcodes, show_progress=False):
+        zipcodes = set(zipcodes)
+        available_zipcodes = list(zipcodes & self.zipcode_set)
+        available_zipcodes.sort()
+
+        return self.add_zipcodes_no_check(available_zipcodes, show_progress)
 
     def display(self):
         if self.map is None:
