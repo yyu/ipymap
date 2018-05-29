@@ -64,9 +64,10 @@ class USMap:
         self.map += g
 
     def add_geojsons(self, geojsons, name=''):
-        d = {"type": "FeatureCollection", "features": list(geojsons), 'properties': {}}
+        for geojson in geojsons:
+            geojson['properties']['style'] = self.area_style
 
-        d['properties']['style'] = self.area_style
+        d = {"type": "FeatureCollection", "features": list(geojsons), 'properties': {}}
 
         self.add_geojson(d, name)
 
