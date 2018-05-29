@@ -64,7 +64,9 @@ class USMap:
         self.map += g
 
     def add_geojsons(self, geojsons, name=''):
-        d = {"type": "FeatureCollection", "features": list(geojsons)}
+        d = {"type": "FeatureCollection", "features": list(geojsons), 'properties': {}}
+
+        d['properties']['style'] = self.area_style
 
         self.add_geojson(d, name)
 
@@ -110,12 +112,29 @@ class USMap:
 
         return zipcodes
 
+    def add_zipcode_batch_no_check(self, zipcodes, show_progress=False):
+        zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
+
+        geojsons = [self.zipcodes[z] for z in zipcode_gen]
+        name = '%d geojsons' % len(geojsons)
+
+        self.add_geojsons(geojsons, name)
+
+        return zipcodes
+
     def add_zipcodes(self, zipcodes, show_progress=False):
         zipcodes = set(zipcodes)
         available_zipcodes = list(zipcodes & self.zipcode_set)
         available_zipcodes.sort()
 
         return self.add_zipcodes_no_check(available_zipcodes, show_progress)
+
+    def add_zipcode_batch(self, zipcodes, show_progress=False):
+        zipcodes = set(zipcodes)
+        available_zipcodes = list(zipcodes & self.zipcode_set)
+        available_zipcodes.sort()
+
+        return self.add_zipcode_batch_no_check(available_zipcodes, show_progress)
 
     def display(self):
         if self.map is None:
