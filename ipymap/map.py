@@ -72,8 +72,8 @@ class USMap:
 
         return {"type": "FeatureCollection", "features": list(geojsons), 'properties': {}}
 
-    def add_geojsons(self, geojsons, name=''):
-        d = self.merge_geojsons(geojsons, True)
+    def add_geojsons(self, geojsons, name='', lines_only=False):
+        d = self.merge_geojsons(geojsons, lines_only)
 
         self.add_geojson(d, name)
 
@@ -125,13 +125,13 @@ class USMap:
 
         return zipcodes
 
-    def add_zipcode_batch_no_check(self, zipcodes, show_progress=False):
+    def add_zipcode_batch_no_check(self, zipcodes, lines_only=False, show_progress=False):
         zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
 
         geojsons = [self.zipcodes[z] for z in zipcode_gen]
         name = '%d geojsons' % len(geojsons)
 
-        self.add_geojsons(geojsons, name)
+        self.add_geojsons(geojsons, name, lines_only)
 
         return zipcodes
 
@@ -149,12 +149,12 @@ class USMap:
 
         return self.add_zipcodes_no_check(available_zipcodes, show_progress)
 
-    def add_zipcode_batch(self, zipcodes, show_progress=False):
+    def add_zipcode_batch(self, zipcodes, lines_only=False, show_progress=False):
         zipcodes = set(zipcodes)
         available_zipcodes = list(zipcodes & self.zipcode_set)
         available_zipcodes.sort()
 
-        return self.add_zipcode_batch_no_check(available_zipcodes, show_progress)
+        return self.add_zipcode_batch_no_check(available_zipcodes, lines_only, show_progress)
 
     def display(self):
         if self.map is None:

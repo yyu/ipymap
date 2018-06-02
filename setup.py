@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="ipymap",
-    version="0.0.3",
+    version="0.0.4",
 
     install_requires=[
         'ipywidgets>=7.1.1',
