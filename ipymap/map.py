@@ -63,11 +63,17 @@ class USMap:
 
         self.map += g
 
-    def add_geojsons(self, geojsons, name=''):
+    def merge_geojsons(self, geojsons, lines_only=False):
         for geojson in geojsons:
             geojson['properties']['style'] = self.area_style
 
-        d = {"type": "FeatureCollection", "features": list(geojsons), 'properties': {}}
+            if lines_only and geojson["geometry"]["type"] == 'Polygon':
+                geojson["geometry"]["type"] = 'MultiLineString'
+
+        return {"type": "FeatureCollection", "features": list(geojsons), 'properties': {}}
+
+    def add_geojsons(self, geojsons, name=''):
+        d = self.merge_geojsons(geojsons, True)
 
         self.add_geojson(d, name)
 
@@ -105,6 +111,12 @@ class USMap:
 
         self.progress_label.value = label_on_finish
 
+    def merge_zipcodes_no_check(self, zipcodes, show_progress=False):
+        zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
+
+        geojsons = [self.fetch_zipcode(z) for z in zipcode_gen]
+        return self.merge_geojsons(geojsons)
+
     def add_zipcodes_no_check(self, zipcodes, show_progress=False):
         zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
 
@@ -122,6 +134,13 @@ class USMap:
         self.add_geojsons(geojsons, name)
 
         return zipcodes
+
+    def merge_zipcodes(self, zipcodes, show_progress=False):
+        zipcodes = set(zipcodes)
+        available_zipcodes = list(zipcodes & self.zipcode_set)
+        available_zipcodes.sort()
+
+        return self.merge_zipcodes_no_check(available_zipcodes, show_progress)
 
     def add_zipcodes(self, zipcodes, show_progress=False):
         zipcodes = set(zipcodes)
