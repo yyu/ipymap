@@ -48,12 +48,39 @@ class USMap:
         if kwargs.get('type') == 'mousemove':
             self.label.value = str(kwargs.get('coordinates'))
 
-    def fetch_zipcode(self, zipcode):
+    def fetch_geojson_for_zipcode(self, zipcode):
         return self.zipcodes[zipcode]
+
+    def add_dot(self, lat, lng, name='', radius=2, color='red', popup=None):
+        circle_marker = leaflet.CircleMarker()
+
+        circle_marker.location = (lat, lng)
+        circle_marker.radius = radius
+        circle_marker.fill_color = color
+
+        circle_marker.stroke = False
+        # circle_marker.color = "red"
+
+        circle_marker.name = ' • ' + name
+
+        if popup is not None:
+            circle_marker.popup = popup
+
+        self.map.add_layer(circle_marker)
 
     def add_point(self, lat, lng, name='', popup=None):
         feature = {"type": "Feature", "properties": {}, "geometry": {"type": "Point", "coordinates": [lng, lat]}}
         self.add_geojson(feature, name, popup)
+
+    def add_zipcode_as_dot(self, zipcode, radius=2, color='red'):
+        detail = self.gazetteer[zipcode]
+
+        popup_value = '%s (land %s mile²)' % (detail['GEOID'], detail['ALAND_SQMI'])
+        popup = widgets.HTML(value=popup_value, placeholder='', description='')
+
+        self.add_dot(detail['INTPTLAT'], detail['INTPTLONG'],
+                     name=detail['GEOID'], radius=radius, color=color, popup=popup)
+        return popup_value
 
     def add_geojson(self, geojson, name='', popup=None):
         g = leaflet.GeoJSON(data=geojson, hover_style={'fillColor': '#00aaff'}, name=name)
@@ -78,10 +105,10 @@ class USMap:
         self.add_geojson(d, name)
 
     def add_zipcode(self, zipcode):
-        d = self.fetch_zipcode(zipcode)
+        d = self.fetch_geojson_for_zipcode(zipcode)
         if d is None:
             print('failed to add ' + zipcode + '.')
-            return
+            return 'nope'
 
         d['properties']['style'] = self.area_style
 
@@ -94,9 +121,11 @@ class USMap:
         popup = widgets.HTML(value=popup_text, placeholder='', description='')
 
         self.add_geojson(d, name=zipcode, popup=popup)
+        return 'ok'
 
     def progressive_iter(self, iterable, n=None, label_on_finish=''):
-        display(self.info_box)
+        objs = (self.info_box,)
+        display(*objs)
 
         if n is None:
             n = len(iterable)
@@ -111,56 +140,110 @@ class USMap:
 
         self.progress_label.value = label_on_finish
 
-    def merge_zipcodes_no_check(self, zipcodes, show_progress=False):
+    def iter_zipcodes_no_check(self, zipcodes, per_zipcode=lambda z: '', show_progress=False):
+        """example::
+
+            >>> m = USMap()
+            >>> def process_zipcode(zipcode):
+            ...     if zipcode.startswith('9'):
+            ...         return 'OK'
+
+            >>> zipcodes = ['98109', '98121', 'abcde']
+            >>> results = m.iter_zipcodes_no_check(zipcodes, process_zipcode)
+            >>> results
+            {'98109': 'OK', '98121': 'OK', 'abcde': None}
+
+            >>> list(results.values())
+            ['OK', 'OK', None]
+        """
         zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
 
-        geojsons = [self.fetch_zipcode(z) for z in zipcode_gen]
-        return self.merge_geojsons(geojsons)
+        return {z: per_zipcode(z) for z in zipcode_gen}
 
-    def add_zipcodes_no_check(self, zipcodes, show_progress=False):
-        zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
+    def iter_zipcodes(self, zipcodes, per_zipcode=lambda z: '', show_progress=False):
+        """example::
 
-        for z in zipcode_gen:
-            self.add_zipcode(z)
+            >>> m = USMap()
+            >>> def process_zipcode(zipcode):
+            ...     return zipcode[:2]
 
-        return zipcodes
+            >>> zipcodes = ['98109', '98121', 'abcde']
+            >>> results = m.iter_zipcodes(zipcodes, process_zipcode)
+            >>> results
+            {'98109': '98', '98121': '98'}
 
-    def add_zipcode_batch_no_check(self, zipcodes, lines_only=False, show_progress=False):
-        zipcode_gen = self.progressive_iter(zipcodes) if show_progress else zipcodes
+            >>> list(results.keys())
+            ['98109', '98121']
 
-        geojsons = [self.zipcodes[z] for z in zipcode_gen]
-        name = '%d geojsons' % len(geojsons)
+            >>> list(results.values())
+            ['98', '98']
+        """
+        zipcodes = set(zipcodes)
+        available_zipcodes = list(zipcodes & self.zipcode_set)
+        available_zipcodes.sort()
 
-        self.add_geojsons(geojsons, name, lines_only)
-
-        return zipcodes
+        return self.iter_zipcodes_no_check(available_zipcodes, per_zipcode, show_progress)
 
     def merge_zipcodes(self, zipcodes, show_progress=False):
-        zipcodes = set(zipcodes)
-        available_zipcodes = list(zipcodes & self.zipcode_set)
-        available_zipcodes.sort()
+        """example::
 
-        return self.merge_zipcodes_no_check(available_zipcodes, show_progress)
+            >>> m = USMap()
+            >>> def process_zipcode(zipcode):
+            ...     return zipcode[:2]
 
-    def add_zipcodes(self, zipcodes, show_progress=False):
-        zipcodes = set(zipcodes)
-        available_zipcodes = list(zipcodes & self.zipcode_set)
-        available_zipcodes.sort()
+            >>> zipcodes = ['98109', '98121', 'abcde']
+            >>> merged = m.merge_zipcodes(zipcodes)
 
-        return self.add_zipcodes_no_check(available_zipcodes, show_progress)
+            >>> list(merged.keys())
+            ['type', 'features', 'properties']
 
-    def add_zipcode_batch(self, zipcodes, lines_only=False, show_progress=False):
-        zipcodes = set(zipcodes)
-        available_zipcodes = list(zipcodes & self.zipcode_set)
-        available_zipcodes.sort()
+            >>> all(f['geometry']['type'] == 'Polygon' for f in merged['features'])
+            True
 
-        return self.add_zipcode_batch_no_check(available_zipcodes, lines_only, show_progress)
+            >>> [f['properties']['GEOID10'] for f in merged['features']]
+            ['98109', '98121']
+        """
+        geojsons = self.iter_zipcodes(zipcodes, self.fetch_geojson_for_zipcode, show_progress).values()
+        return self.merge_geojsons(geojsons)
+
+    def add_zipcodes(self, zipcodes, mode='area', batch=False, show_progress=False):
+        def raise_on_error():
+            raise RuntimeError('the combination of (mode=%s, batch=%s) is not supported' % (mode, batch))
+
+        supported_modes = ('area', 'boundary', 'dot')
+        should_do_one_by_one = not batch
+
+        if mode not in supported_modes:
+            raise RuntimeError('%s is not supported. choose from (%s)' % (mode, ', '.join(supported_modes)))
+
+        if should_do_one_by_one:
+            if mode == 'dot':
+                return self.iter_zipcodes(zipcodes, self.add_zipcode_as_dot, show_progress)
+            elif mode == 'area':
+                return self.iter_zipcodes(zipcodes, self.add_zipcode, show_progress)
+            else:
+                raise_on_error()
+        else:  # batch mode
+            if mode in ('area', 'boundary'):
+                results = self.iter_zipcodes(zipcodes, lambda z: self.zipcodes[z], show_progress)
+
+                geojsons = list(results.values())
+                self.add_geojsons(geojsons, name='%d geojsons' % len(geojsons), lines_only=(mode == 'boundary'))
+
+                return results
+            else:
+                raise_on_error()
 
     def display(self):
         if self.map is None:
             self.map = leaflet.Map(center=self.center, zoom=self.zoom, basemap=self.basemap, layout=self.map_layout)
             self.map.on_interaction(self.handle_interaction)
-            self.map.add_control(self.layers_control)
+            # self.map.add_control(self.layers_control)
 
-        display(self.map)
-        display(self.label)
+        objs = (self.map, self.label)
+        display(*objs)
+
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()
